@@ -52,7 +52,6 @@ class API {
     }
 
     const method = String(options.method || 'GET').toUpperCase();
-    const query = new URLSearchParams({ action });
     const fetchOptions = { 
       method,
       headers: {
@@ -60,17 +59,24 @@ class API {
       }
     };
 
-    if (method === 'GET') {
-      // For GET requests, add parameters to query string
+    // For POST requests: send action in JSON body
+    // For GET requests: send action as query parameter
+    if (method === 'POST') {
+      fetchOptions.body = JSON.stringify({
+        action,
+        ...params
+      });
+    } else {
+      // GET requests still use query parameters
+      const query = new URLSearchParams({ action });
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) query.set(key, value);
       });
-    } else {
-      // For POST requests, send parameters as JSON body
-      fetchOptions.body = JSON.stringify(params);
     }
 
-    const url = `${APPS_SCRIPT_API_BASE}?${query.toString()}`;
+    const url = method === 'GET'
+      ? `${APPS_SCRIPT_API_BASE}?${new URLSearchParams({ action, ...params }).toString()}`
+      : APPS_SCRIPT_API_BASE;
 
     if (method === 'GET') {
       const cached = this.appsScriptCache.get(url);
@@ -120,8 +126,16 @@ class API {
   static appsScriptCreateUser(user) {
     return this.appsScriptAction('createUser', {
       name: user?.name || '',
+      password: user?.password || '',
       bio: user?.bio || '',
       photo_url: user?.photo_url || ''
+    }, { method: 'POST' });
+  }
+
+  static appsScriptLoginUser(name, password) {
+    return this.appsScriptAction('loginUser', {
+      name,
+      password
     }, { method: 'POST' });
   }
 
@@ -292,9 +306,13 @@ class API {
 
     if (path === '/auth/register' && method === 'POST') {
       const name = String(body.name || '').trim();
+      const password = String(body.password || '').trim();
       if (!name) throw API._makeHttpError(400, { error: 'Name is required' });
+      if (!password) throw API._makeHttpError(400, { error: 'Password is required' });
+      
       const created = await this.appsScriptCreateUser({
         name,
+        password,
         bio: '',
         photo_url: body.photo_url || ''
       });
@@ -306,17 +324,16 @@ class API {
     }
 
     if (path === '/auth/login' && method === 'POST') {
-      const identifier = String(body.email || body.name || body.userId || '').trim().toLowerCase();
-      const users = await this.appsScriptGetUsers();
-      const user = (users || []).find(item => {
-        const name = String(item.name || '').trim().toLowerCase();
-        const id = String(item.id || '').trim().toLowerCase();
-        return identifier && (name === identifier || id === identifier);
-      });
+      const name = String(body.email || body.name || '').trim();
+      const password = String(body.password || '').trim();
+      if (!name) throw API._makeHttpError(400, { error: 'Name or email is required' });
+      if (!password) throw API._makeHttpError(400, { error: 'Password is required' });
+      
+      const user = await this.appsScriptLoginUser(name, password);
 
       if (!user) {
-        throw API._makeHttpError(404, {
-          error: 'User not found in Google Sheets. Use Create Account first, or log in with the exact name or user ID.'
+        throw API._makeHttpError(401, {
+          error: 'Invalid credentials'
         });
       }
 
