@@ -97,15 +97,33 @@ class Dashboard {
       if (el) el.style.opacity = '0.5';
     });
 
-    Promise.all([
-      window.API?.getLessonPlans?.(999, 0) ?? [],
-      window.API?.getRewards?.() ?? { points: 0, level: 'Beginner' },
-      window.API?.getActivities?.(999, 0) ?? []
-    ]).then(([plans, rewards, acts]) => {
-      this.setStat('lessonPlanCount', plans.length);
+    const loadPromise = window.API?.isAppsScriptMode && window.API?.getDashboardSummary
+      ? window.API.getDashboardSummary().then(summary => ({
+          plans: summary.recentLessonPlans || [],
+          lessonPlanCount: summary.lessonPlanCount || 0,
+          rewards: summary.rewards || { points: 0, level: 'Beginner' },
+          activityCount: summary.activityCount || 0,
+          unreadCount: summary.unreadCount || 0
+        }))
+      : Promise.all([
+          window.API?.getLessonPlans?.(50, 0) ?? [],
+          window.API?.getRewards?.() ?? { points: 0, level: 'Beginner' },
+          window.API?.getActivities?.(20, 0) ?? []
+        ]).then(([plans, rewards, acts]) => ({
+          plans,
+          lessonPlanCount: plans.length,
+          rewards,
+          activityCount: acts.length
+        }));
+
+    loadPromise.then(({ plans, lessonPlanCount, rewards, activityCount, unreadCount }) => {
+      this.setStat('lessonPlanCount', lessonPlanCount);
       this.setStat('userPoints', rewards.points || 0);
       this.setStat('userLevel', rewards.level || 'Beginner');
-      this.setStat('activityCount', acts.length);
+      this.setStat('activityCount', activityCount);
+      if (typeof unreadCount === 'number') {
+        window.Notifications?.updateBadge?.(unreadCount);
+      }
 
       statsToLoad.forEach(id => {
         const el = document.getElementById(id);

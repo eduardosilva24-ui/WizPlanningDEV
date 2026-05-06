@@ -12,12 +12,31 @@ export class AuthService {
   }
 
   /**
+   * Validate password strength
+   * Requires: minimum 8 characters, 1 uppercase letter, 1 number
+   */
+  static validatePasswordStrength(password) {
+    const regex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!regex.test(password)) {
+      throw new Error('Password must have at least 8 characters, 1 uppercase letter and 1 number');
+    }
+  }
+
+  /**
    * Register a new user
    */
   async register(name, email, password, role = 'teacher') {
     return new Promise((resolve, reject) => {
       if (!name || !email || !password) {
         reject(new Error('Missing required fields'));
+        return;
+      }
+
+      // Validate password strength
+      try {
+        AuthService.validatePasswordStrength(password);
+      } catch (err) {
+        reject(err);
         return;
       }
 

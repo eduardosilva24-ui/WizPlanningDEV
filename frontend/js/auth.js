@@ -96,6 +96,20 @@ class Auth {
     const name = document.getElementById('registerName').value.trim();
     const email = document.getElementById('registerEmail').value.trim().toLowerCase();
     const password = document.getElementById('registerPassword').value;
+    const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+
+    // Validação de senhas
+    if (password !== passwordConfirm) {
+      window.UI?.showToast('Passwords do not match', 'error');
+      return;
+    }
+
+    // Validação de força de senha: mínimo 8 caracteres, 1 maiúscula, 1 número
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordRegex.test(password)) {
+      window.UI?.showToast('Password must have at least 8 characters, 1 uppercase letter and 1 number', 'error');
+      return;
+    }
 
     try {
       const result = await window.API.register(name, email, password);

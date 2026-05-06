@@ -22,6 +22,11 @@ export const authController = {
     try {
       const { name, email, password, role } = req.body;
 
+      // Validate password confirmation if provided
+      if (req.body.password_confirm && req.body.password_confirm !== password) {
+        return res.status(400).json({ error: 'Passwords do not match' });
+      }
+
       const user = await authService.register(name, email, password, role || 'teacher');
       res.status(201).json({ message: 'User registered successfully', user });
     } catch (err) {

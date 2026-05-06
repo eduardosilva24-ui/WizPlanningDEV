@@ -6,7 +6,6 @@ class Community {
     if (uploadForm) {
       uploadForm.addEventListener('submit', (e) => this.handleUpload(e));
     }
-    this.loadActivities();
   }
 
   static async handleUpload(e) {

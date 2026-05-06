@@ -3,7 +3,6 @@ class Notifications {
     document
       .getElementById('markAllNotificationsReadBtn')
       ?.addEventListener('click', () => this.markAllRead());
-    this.refreshUnreadCount();
   }
 
   static async refreshUnreadCount() {

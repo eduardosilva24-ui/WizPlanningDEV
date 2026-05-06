@@ -26,6 +26,9 @@ class API {
   };
 
   static staticPlannerDataPromise = null;
+  static appsScriptCache = new Map();
+  static appsScriptInFlight = new Map();
+  static appsScriptCacheTtlMs = 15000;
 
   static get isStaticMode() {
     return Boolean(window.APP_CONFIG?.STATIC_MODE);
@@ -65,14 +68,43 @@ class API {
       );
     }
 
-    const response = await fetch(`${APPS_SCRIPT_API_BASE}?${query.toString()}`, fetchOptions);
-    const payload = await response.json().catch(() => ({}));
+    const url = `${APPS_SCRIPT_API_BASE}?${query.toString()}`;
 
-    if (!response.ok || payload.success === false) {
-      throw API._makeHttpError(response.status || 500, payload);
+    if (method === 'GET') {
+      const cached = this.appsScriptCache.get(url);
+      if (cached && Date.now() - cached.timestamp < this.appsScriptCacheTtlMs) {
+        return cached.data;
+      }
+      if (this.appsScriptInFlight.has(url)) {
+        return this.appsScriptInFlight.get(url);
+      }
+    } else {
+      this.appsScriptCache.clear();
     }
 
-    return payload.data;
+    const requestPromise = fetch(url, fetchOptions)
+      .then(async response => {
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok || payload.success === false) {
+          throw API._makeHttpError(response.status || 500, payload);
+        }
+
+        if (method === 'GET') {
+          this.appsScriptCache.set(url, {
+            timestamp: Date.now(),
+            data: payload.data
+          });
+        }
+
+        return payload.data;
+      })
+      .finally(() => {
+        if (method === 'GET') this.appsScriptInFlight.delete(url);
+      });
+
+    if (method === 'GET') this.appsScriptInFlight.set(url, requestPromise);
+    return requestPromise;
   }
 
   static appsScriptGetUsers() {
@@ -112,8 +144,12 @@ class API {
     }, { method: 'POST' });
   }
 
-  static appsScriptGetNotifications(userId) {
-    return this.appsScriptAction('getNotifications', { userId });
+  static appsScriptGetNotifications(userId, limit = 30, offset = 0) {
+    return this.appsScriptAction('getNotifications', { userId, limit, offset });
+  }
+
+  static appsScriptGetUnreadNotificationsCount(userId) {
+    return this.appsScriptAction('getUnreadNotificationsCount', { userId });
   }
 
   static appsScriptCreateNotification(notification) {
@@ -181,6 +217,10 @@ class API {
 
   static appsScriptGetUserActivities(currentUserId, targetUserId, limit = 20, offset = 0) {
     return this.appsScriptAction('getUserActivities', { userId: currentUserId, targetUserId, limit, offset });
+  }
+
+  static appsScriptGetDashboardSummary(userId, recentLimit = 5) {
+    return this.appsScriptAction('getDashboardSummary', { userId, recentLimit });
   }
 
   static appsScriptCreateActivity(activity) {
@@ -308,6 +348,10 @@ class API {
       return this.normalizeAppsScriptUser(user);
     }
 
+    if (path === '/dashboard/summary' && method === 'GET') {
+      return this.appsScriptGetDashboardSummary(this.requireAppsScriptUser().id, 5);
+    }
+
     if (path === '/rewards' && method === 'GET') {
       return this.appsScriptRewardsForUser(this.requireAppsScriptUser().id);
     }
@@ -326,7 +370,7 @@ class API {
       const user = this.requireAppsScriptUser();
       const limit = parseInt(query.get('limit'), 10) || 30;
       const offset = parseInt(query.get('offset'), 10) || 0;
-      const allNotifications = (await this.appsScriptGetNotifications(user.id) || [])
+      const allNotifications = (await this.appsScriptGetNotifications(user.id, limit, offset) || [])
         .map(item => ({
           ...item,
           title: item.title || 'Notification',
@@ -334,15 +378,15 @@ class API {
           created_at: item.created_at || item.timestamp,
           read: Boolean(item.read)
         }));
+      const unread = await this.appsScriptGetUnreadNotificationsCount(user.id);
       return {
-        notifications: allNotifications.slice(offset, offset + limit),
-        unreadCount: allNotifications.filter(item => !item.read).length
+        notifications: allNotifications,
+        unreadCount: unread.unreadCount || 0
       };
     }
 
     if (path === '/notifications/unread-count' && method === 'GET') {
-      const { unreadCount } = await this.appsScriptRequest('/notifications');
-      return { unreadCount };
+      return this.appsScriptGetUnreadNotificationsCount(this.requireAppsScriptUser().id);
     }
 
     if (path === '/notifications/mark-all-read' && method === 'POST') {
@@ -1401,6 +1445,10 @@ class API {
 
   static getProfile() {
     return this.request('/auth/profile');
+  }
+
+  static getDashboardSummary() {
+    return this.request('/dashboard/summary');
   }
 
   static updateProfile(profile) {

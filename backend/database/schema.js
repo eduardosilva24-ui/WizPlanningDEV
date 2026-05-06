@@ -87,11 +87,18 @@ export const DATABASE_SCHEMA = `
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 
+  CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
   CREATE INDEX IF NOT EXISTS idx_lesson_plans_user_id ON lesson_plans(user_id);
+  CREATE INDEX IF NOT EXISTS idx_lesson_plans_created_at ON lesson_plans(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_activities_created_by ON activities(created_by);
+  CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_activities_category ON activities(category);
   CREATE INDEX IF NOT EXISTS idx_rewards_user_id ON rewards(user_id);
+  CREATE INDEX IF NOT EXISTS idx_activity_likes_composite ON activity_likes(user_id, activity_id);
   CREATE INDEX IF NOT EXISTS idx_planner_launches_user_id ON planner_launches(user_id);
+  CREATE INDEX IF NOT EXISTS idx_planner_launches_created_at ON planner_launches(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+  CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_notifications_read_at ON notifications(read_at);
 `;
 

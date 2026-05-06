@@ -1,4 +1,7 @@
-var SPREADSHEET_ID = "1c8n7A8T54hTC_0dFdB7DgzLApmdVP2xoM6O6ABDefi4";
+var SPREADSHEET_ID = "1TWjarn5uebUlCYsKNA4OAP73lI-E8NM1-ZwD7tc5G5w";
+var SCHEMA_VERSION = "2026-05-03-v2";
+var SCHEMA_PROPERTY = "wizplanning_schema_version";
+var SPREADSHEET_CACHE_ = null;
 
 var SHEETS = {
   USERS: "Users",
@@ -41,7 +44,7 @@ function doGet(e) {
       case "getMedals":
         return success_(getMedals(requireParam_(params, "userId")));
       case "getNotifications":
-        return success_(getNotifications(requireParam_(params, "userId")));
+        return success_(getNotifications(requireParam_(params, "userId"), params));
       case "getUnreadNotificationsCount":
         return success_(getUnreadNotificationsCount(requireParam_(params, "userId")));
       case "getLessonPlans":
@@ -58,6 +61,8 @@ function doGet(e) {
         return success_(getActivitiesByCategory(requireParam_(params, "category"), params));
       case "getUserActivities":
         return success_(getUserActivities(requireParam_(params, "targetUserId"), params));
+      case "getDashboardSummary":
+        return success_(getDashboardSummary(requireParam_(params, "userId"), params));
       default:
         throw new Error("Unknown GET action: " + action);
     }
@@ -178,18 +183,24 @@ function awardMedalIfMissing_(userId, medalName, message) {
   return medal;
 }
 
-function getNotifications(userId) {
+function getNotifications(userId, params) {
+  params = params || {};
+  var limit = parsePositiveInt_(optionalParam_(params, "limit", "30"), 30);
+  var offset = parsePositiveInt_(optionalParam_(params, "offset", "0"), 0);
   return readRecords_(SHEETS.NOTIFICATIONS, HEADERS.NOTIFICATIONS)
     .filter(function (notification) { return String(notification.user_id) === String(userId); })
     .map(normalizeNotification_)
-    .sort(function (a, b) { return String(b.timestamp).localeCompare(String(a.timestamp)); });
+    .sort(function (a, b) { return String(b.timestamp).localeCompare(String(a.timestamp)); })
+    .slice(offset, offset + limit);
 }
 
 function getUnreadNotificationsCount(userId) {
+  var unreadCount = readRecords_(SHEETS.NOTIFICATIONS, HEADERS.NOTIFICATIONS)
+    .filter(function (notification) {
+      return String(notification.user_id) === String(userId) && !toBoolean_(notification.read);
+    }).length;
   return {
-    unreadCount: getNotifications(userId).filter(function (notification) {
-      return !notification.read;
-    }).length
+    unreadCount: unreadCount
   };
 }
 
@@ -226,10 +237,12 @@ function markAllNotificationsRead(data) {
   for (var i = 0; i < values.length; i++) {
     var object = rowToObject_(HEADERS.NOTIFICATIONS, values[i]);
     if (String(object.user_id) === String(userId) && !toBoolean_(object.read)) {
-      object.read = true;
-      writeRecord_(sheet, i + 2, HEADERS.NOTIFICATIONS, object);
+      values[i][3] = true;
       updated++;
     }
+  }
+  if (updated) {
+    sheet.getRange(2, 1, values.length, HEADERS.NOTIFICATIONS.length).setValues(values);
   }
   return { updated: updated };
 }
@@ -269,8 +282,8 @@ function saveClassPlan(data) {
 }
 
 function getLessonPlans(userId, params) {
-  var limit = parseInt(optionalParam_(params, "limit", "50"), 10) || 50;
-  var offset = parseInt(optionalParam_(params, "offset", "0"), 10) || 0;
+  var limit = parsePositiveInt_(optionalParam_(params, "limit", "50"), 50);
+  var offset = parsePositiveInt_(optionalParam_(params, "offset", "0"), 0);
   return readRecords_(SHEETS.LESSON_PLANS, HEADERS.LESSON_PLANS)
     .filter(function (plan) { return String(plan.user_id) === String(userId); })
     .sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); })
@@ -317,22 +330,20 @@ function deleteLessonPlan(data) {
 }
 
 function getRewards(userId) {
-  var reward = ensureRewardRecord_(userId);
+  var found = findRewardRecord_(userId);
+  var reward = found ? found.object : {
+    user_id: userId,
+    points: 0,
+    last_bonus_date: "",
+    updated_at: ""
+  };
   var medals = getMedals(userId);
   var points = Number(reward.points || 0);
   return {
     userId: userId,
     points: points,
     level: calculateLevel_(points),
-    badges: medals.map(function (medal) {
-      return {
-        id: medal.medal_name,
-        name: medal.medal_name,
-        description: "Unlocked on " + medal.date,
-        icon: "Badge",
-        date: medal.date
-      };
-    }),
+    badges: formatBadges_(medals),
     badgeIds: medals.map(function (medal) { return medal.medal_name; }),
     last_bonus_date: reward.last_bonus_date || ""
   };
@@ -356,17 +367,26 @@ function claimDailyBonus(data) {
 }
 
 function getLeaderboard(params) {
-  var limit = parseInt(optionalParam_(params, "limit", "10"), 10) || 10;
+  var limit = parsePositiveInt_(optionalParam_(params, "limit", "10"), 10);
   var users = getUsers();
+  var rewardsByUserId = getRewardsByUserId_();
+  var medalsByUserId = getMedalsByUserId_();
   return users.map(function (user) {
-    var rewards = getRewards(user.id);
+    var reward = rewardsByUserId[String(user.id)] || {
+      user_id: user.id,
+      points: 0,
+      last_bonus_date: "",
+      updated_at: ""
+    };
+    var medals = medalsByUserId[String(user.id)] || [];
+    var points = Number(reward.points || 0);
     return {
       id: user.id,
       name: user.name,
       bio: user.bio || "",
-      points: rewards.points,
-      level: rewards.level,
-      badges: rewards.badges
+      points: points,
+      level: calculateLevel_(points),
+      badges: formatBadges_(medals)
     };
   }).sort(function (a, b) {
     return b.points - a.points;
@@ -399,24 +419,32 @@ function createActivity(data) {
 
 function getActivities(params) {
   var currentUserId = optionalParam_(params, "userId", "");
-  var limit = parseInt(optionalParam_(params, "limit", "20"), 10) || 20;
-  var offset = parseInt(optionalParam_(params, "offset", "0"), 10) || 0;
-  return readRecords_(SHEETS.ACTIVITIES, HEADERS.ACTIVITIES)
+  var limit = parsePositiveInt_(optionalParam_(params, "limit", "20"), 20);
+  var offset = parsePositiveInt_(optionalParam_(params, "offset", "0"), 0);
+  var activities = readRecords_(SHEETS.ACTIVITIES, HEADERS.ACTIVITIES)
     .sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); })
-    .slice(offset, offset + limit)
-    .map(function (activity) { return decorateActivity_(activity, currentUserId); });
+    .slice(offset, offset + limit);
+  return decorateActivities_(activities, currentUserId);
 }
 
 function getActivitiesByCategory(category, params) {
-  return getActivities({ userId: params.userId || "", limit: 9999, offset: 0 })
+  var limit = parsePositiveInt_(optionalParam_(params, "limit", "20"), 20);
+  var offset = parsePositiveInt_(optionalParam_(params, "offset", "0"), 0);
+  var activities = readRecords_(SHEETS.ACTIVITIES, HEADERS.ACTIVITIES)
     .filter(function (activity) { return String(activity.category) === String(category); })
-    .slice(Number(params.offset || 0), Number(params.offset || 0) + (Number(params.limit || 20)));
+    .sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); })
+    .slice(offset, offset + limit);
+  return decorateActivities_(activities, params.userId || "");
 }
 
 function getUserActivities(targetUserId, params) {
-  return getActivities({ userId: params.userId || "", limit: 9999, offset: 0 })
+  var limit = parsePositiveInt_(optionalParam_(params, "limit", "20"), 20);
+  var offset = parsePositiveInt_(optionalParam_(params, "offset", "0"), 0);
+  var activities = readRecords_(SHEETS.ACTIVITIES, HEADERS.ACTIVITIES)
     .filter(function (activity) { return String(activity.user_id) === String(targetUserId); })
-    .slice(Number(params.offset || 0), Number(params.offset || 0) + (Number(params.limit || 20)));
+    .sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); })
+    .slice(offset, offset + limit);
+  return decorateActivities_(activities, params.userId || "");
 }
 
 function likeActivity(data) {
@@ -479,8 +507,18 @@ function deleteActivity(data) {
   return { deleted: true, id: activityId };
 }
 
-function decorateActivity_(activity, currentUserId) {
-  var user = getUser(activity.user_id) || {};
+function decorateActivities_(activities, currentUserId) {
+  var usersById = getUsersById_();
+  var likedActivityIds = getLikedActivityIds_(currentUserId);
+  return activities.map(function (activity) {
+    return decorateActivity_(activity, currentUserId, usersById, likedActivityIds);
+  });
+}
+
+function decorateActivity_(activity, currentUserId, usersById, likedActivityIds) {
+  usersById = usersById || getUsersById_();
+  likedActivityIds = likedActivityIds || getLikedActivityIds_(currentUserId);
+  var user = usersById[String(activity.user_id)] || {};
   return {
     id: activity.id,
     user_id: activity.user_id,
@@ -496,8 +534,73 @@ function decorateActivity_(activity, currentUserId) {
     creator_name: user.name || "Teacher",
     creator_bio: user.bio || "",
     creator_avatar_url: "",
-    likedByCurrentUser: currentUserId ? Boolean(findActivityLike_(activity.id, currentUserId)) : false
+    likedByCurrentUser: currentUserId ? Boolean(likedActivityIds[String(activity.id)]) : false
   };
+}
+
+function getDashboardSummary(userId, params) {
+  var recentLimit = parsePositiveInt_(optionalParam_(params || {}, "recentLimit", "5"), 5);
+  var plans = readRecords_(SHEETS.LESSON_PLANS, HEADERS.LESSON_PLANS)
+    .filter(function (plan) { return String(plan.user_id) === String(userId); })
+    .sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
+  var activityCount = Math.max(0, getSheet_(SHEETS.ACTIVITIES, HEADERS.ACTIVITIES).getLastRow() - 1);
+  var rewards = getRewards(userId);
+  var unreadCount = getUnreadNotificationsCount(userId).unreadCount;
+
+  return {
+    lessonPlanCount: plans.length,
+    recentLessonPlans: plans.slice(0, recentLimit),
+    activityCount: activityCount,
+    rewards: rewards,
+    unreadCount: unreadCount
+  };
+}
+
+function getUsersById_() {
+  var map = {};
+  readRecords_(SHEETS.USERS, HEADERS.USERS).forEach(function (user) {
+    map[String(user.id)] = user;
+  });
+  return map;
+}
+
+function getLikedActivityIds_(userId) {
+  var map = {};
+  if (!userId) return map;
+  readRecords_(SHEETS.ACTIVITY_LIKES, HEADERS.ACTIVITY_LIKES).forEach(function (like) {
+    if (String(like.user_id) === String(userId)) map[String(like.activity_id)] = true;
+  });
+  return map;
+}
+
+function getRewardsByUserId_() {
+  var map = {};
+  readRecords_(SHEETS.REWARDS, HEADERS.REWARDS).forEach(function (reward) {
+    map[String(reward.user_id)] = reward;
+  });
+  return map;
+}
+
+function getMedalsByUserId_() {
+  var map = {};
+  readRecords_(SHEETS.MEDALS, HEADERS.MEDALS).forEach(function (medal) {
+    var key = String(medal.user_id);
+    if (!map[key]) map[key] = [];
+    map[key].push(medal);
+  });
+  return map;
+}
+
+function formatBadges_(medals) {
+  return (medals || []).map(function (medal) {
+    return {
+      id: medal.medal_name,
+      name: medal.medal_name,
+      description: "Unlocked on " + medal.date,
+      icon: "Badge",
+      date: medal.date
+    };
+  });
 }
 
 function addPoints_(userId, points) {
@@ -579,19 +682,27 @@ function deleteLikesForActivity_(activityId) {
 }
 
 function ensureAllSheets_() {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty(SCHEMA_PROPERTY) === SCHEMA_VERSION) return;
+
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    if (props.getProperty(SCHEMA_PROPERTY) === SCHEMA_VERSION) return;
     Object.keys(SHEETS).forEach(function (key) {
       ensureSheet_(SHEETS[key], HEADERS[key]);
     });
+    props.setProperty(SCHEMA_PROPERTY, SCHEMA_VERSION);
   } finally {
     lock.releaseLock();
   }
 }
 
 function getSpreadsheet_() {
-  return SpreadsheetApp.openById(SPREADSHEET_ID);
+  if (!SPREADSHEET_CACHE_) {
+    SPREADSHEET_CACHE_ = SpreadsheetApp.openById(SPREADSHEET_ID);
+  }
+  return SPREADSHEET_CACHE_;
 }
 
 function ensureSheet_(sheetName, headers) {
@@ -744,6 +855,12 @@ function isBlankRow_(row) {
 function stringifyMaybe_(value) {
   if (typeof value === "string") return value;
   return JSON.stringify(value || "");
+}
+
+function parsePositiveInt_(value, fallback) {
+  var parsed = parseInt(String(value), 10);
+  if (!isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
 }
 
 function generateId_(prefix) {

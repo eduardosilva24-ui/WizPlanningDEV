@@ -5,7 +5,7 @@
 Google Apps Script backend:
 
 ```text
-https://script.google.com/macros/s/AKfycbxwobTuDMafuitKSFXKzN6B95QRvdMRR00GrHMfC73C4n-8ks94atyTYbCeHdt7qGd3/exec
+https://script.google.com/macros/s/AKfycbyIIw0m25ZfrkLAaiowfQ4iovQmWGe_AVTvNzzo0cFsU67mNo56M-CPk9Q-TDdnI3ZA/exec
 ```
 
 The frontend reads this URL from `frontend/js/config.js`.
@@ -63,3 +63,14 @@ The published Google Sheets backend does not store passwords or emails. In Apps 
 ## Community Materials
 
 Community posts accept a public material URL, such as a Google Drive share link. Binary file upload is intentionally not used on GitHub Pages.
+
+## Performance Notes
+
+The optimized frontend now avoids loading every module at startup. Opening the app loads the profile and one dashboard summary request; community, notifications, profile details, and leaderboard load when their tabs are opened.
+
+The Apps Script backend also:
+
+- checks/creates sheet structure only once per deployed schema version;
+- reads users, likes, rewards, and medals in batches for community and leaderboard views;
+- uses one dashboard summary endpoint instead of multiple large list requests;
+- avoids writing to Sheets during normal read-only dashboard requests.

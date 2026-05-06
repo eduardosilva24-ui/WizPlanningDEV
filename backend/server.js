@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import compression from 'compression';
 
 import authRoutes from './routes/auth.js';
 import lessonPlanRoutes from './routes/lessonPlan.js';
@@ -35,6 +36,7 @@ if (process.env.TRUST_PROXY === '1') {
 
 // Middleware
 app.use(express.json());
+app.use(compression({ level: 6, threshold: 1024 }));
 app.use(cors({
   origin: allowedOrigins || true,
   credentials: true
@@ -42,8 +44,18 @@ app.use(cors({
 app.use(fileUpload());
 
 // Serve static files
-app.use(express.static(path.join(__dirname, '../frontend')));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(express.static(path.join(__dirname, '..'), {
+  maxAge: '1d',
+  etag: false,
+  setHeaders: (res, path) => {
+    if (path.endsWith('.js') || path.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    }
+  }
+}));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
+  maxAge: '1h'
+}));
 
 // Health check
 app.get('/api/health', (req, res) => {

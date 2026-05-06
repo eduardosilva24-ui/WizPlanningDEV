@@ -3,7 +3,6 @@ class Profile {
 
   static init() {
     document.getElementById('profileForm')?.addEventListener('submit', (e) => this.handleProfileSave(e));
-    this.loadProfile();
   }
 
   static async loadProfile() {
