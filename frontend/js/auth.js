@@ -54,20 +54,12 @@ class Auth {
     if (window.API?.isAppsScriptMode) {
       const loginLabel = document.querySelector('label[for="loginEmail"]');
       const loginInput = document.getElementById('loginEmail');
-      const loginPassword = document.getElementById('loginPassword');
-      const loginPasswordGroup = loginPassword?.closest('.form-group');
-      const registerPassword = document.getElementById('registerPassword');
-      const registerPasswordGroup = registerPassword?.closest('.form-group');
 
-      if (loginLabel) loginLabel.textContent = 'Name or User ID';
+      if (loginLabel) loginLabel.textContent = 'Email';
       if (loginInput) {
-        loginInput.type = 'text';
-        loginInput.placeholder = 'Exact name or user ID from Google Sheets';
+        loginInput.type = 'email';
+        loginInput.placeholder = 'Enter your email';
       }
-      if (loginPassword) loginPassword.required = false;
-      if (loginPasswordGroup) loginPasswordGroup.classList.add('hidden');
-      if (registerPassword) registerPassword.required = false;
-      if (registerPasswordGroup) registerPasswordGroup.classList.add('hidden');
     }
 
     loginForm.addEventListener('submit', (e) => this.handleLogin(e));
