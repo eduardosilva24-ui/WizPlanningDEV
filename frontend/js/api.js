@@ -53,19 +53,21 @@ class API {
 
     const method = String(options.method || 'GET').toUpperCase();
     const query = new URLSearchParams({ action });
-    const fetchOptions = { method };
+    const fetchOptions = { 
+      method,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    };
 
     if (method === 'GET') {
+      // For GET requests, add parameters to query string
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null) query.set(key, value);
       });
     } else {
-      fetchOptions.body = new URLSearchParams(
-        Object.entries(params).reduce((payload, [key, value]) => {
-          if (value !== undefined && value !== null) payload[key] = value;
-          return payload;
-        }, {})
-      );
+      // For POST requests, send parameters as JSON body
+      fetchOptions.body = JSON.stringify(params);
     }
 
     const url = `${APPS_SCRIPT_API_BASE}?${query.toString()}`;

@@ -4,31 +4,18 @@
   const openedAsFile = protocol === 'file:';
   const hostedOnGithubPages = window.location.hostname.endsWith('.github.io');
   // REST backend base, for example: 'https://wizplanning-api.onrender.com'
+  // DISABLED: The app now uses ONLY Google Apps Script
   const deployedApiBase = '';
-  // Google Apps Script backend base.
-  const deployedAppsScriptApiBase = 'https://script.google.com/macros/s/AKfycbyIIw0m25ZfrkLAaiowfQ4iovQmWGe_AVTvNzzo0cFsU67mNo56M-CPk9Q-TDdnI3ZA/exec'; // Disabled for local testing - uncomment when deploying with Apps Script
+  // Google Apps Script backend base - REQUIRED for all functionality
   const deployedAppsScriptApiBase = 'https://script.google.com/macros/s/AKfycbyIIw0m25ZfrkLAaiowfQ4iovQmWGe_AVTvNzzo0cFsU67mNo56M-CPk9Q-TDdnI3ZA/exec';
-  const configuredApiBase =
-    window.WIZPLANNING_API_BASE ||
-    localStorage.getItem('wizplanning:apiBase') ||
-    deployedApiBase;
-  const configuredAppsScriptApiBase =
-    window.WIZPLANNING_APPS_SCRIPT_API_BASE ||
-    localStorage.getItem('wizplanning:appsScriptApiBase') ||
-    deployedAppsScriptApiBase;
-
-  const apiBase = configuredApiBase
-    ? configuredApiBase.replace(/\/$/, '').replace(/\/api$/, '') + '/api'
-    : openedAsFile
-      ? 'http://127.0.0.1:3000/api'
-      : `${window.location.origin}/api`;
+  
+  // Force Apps Script mode - ignore REST API and localStorage
+  const configuredAppsScriptApiBase = deployedAppsScriptApiBase;
 
   window.APP_CONFIG = {
-    API_BASE: apiBase,
-    APPS_SCRIPT_API_BASE: configuredAppsScriptApiBase
-      ? configuredAppsScriptApiBase.replace(/\/$/, '')
-      : '',
-    APPS_SCRIPT_MODE: Boolean(configuredAppsScriptApiBase) && !configuredApiBase,
-    STATIC_MODE: hostedOnGithubPages && !configuredApiBase && !configuredAppsScriptApiBase
+    API_BASE: '',
+    APPS_SCRIPT_API_BASE: configuredAppsScriptApiBase.replace(/\/$/, ''),
+    APPS_SCRIPT_MODE: true,
+    STATIC_MODE: false
   };
 })();
